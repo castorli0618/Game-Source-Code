@@ -1,0 +1,148 @@
+using UnityEngine;
+using TMPro;
+using UnityEngine.UI;
+using UnityEngine.EventSystems;
+using System;
+using System.Collections;
+
+public class CodeInputUI : MonoBehaviour
+{
+    public static CodeInputUI Instance;
+
+    // UI Components
+    public GameObject panel;
+    public TMP_InputField inputField;
+    public Button submitButton;
+    public TextMeshProUGUI questionText;
+    public TextMeshProUGUI feedbackText;
+
+    // Logic state
+    private string[] acceptedAnswers;
+    private int incorrectAttempts = 0;
+    private const int maxAttempts = 3;
+
+    // event to notify when the question UI becomes active/inactive
+    public delegate void QuestionUIStateChanged(bool isActive);
+    public static event QuestionUIStateChanged OnQuestionUIStateChanged;
+
+    void Awake()
+    {
+        // Ensure only one instance of this UI exists
+        if (Instance == null)
+            Instance = this;
+        else
+        {
+            Destroy(gameObject);
+            return;
+        }
+
+        // hide startup panel
+        if (panel != null)
+            panel.SetActive(false);
+    }
+
+    /// <summary>
+    /// Displays the code question UI and prepares it for user input.
+    /// </summary>
+    /// <param name="question">question to display</param>
+    /// <param name="acceptedAnswers">correct answers list</param>
+    /// <param name="onCorrectAnswer">action upon correct answer entered</param>
+    
+    public void ShowUI(string question, string[] acceptedAnswers, Action onCorrectAnswer)
+    {
+        // basic null check for required UI references
+        if (panel == null || inputField == null || submitButton == null || questionText == null)
+        {
+            Debug.LogError("CodeInputUI: Missing UI references.");
+            // ensures all UI references are there
+            return;
+        }
+
+        this.acceptedAnswers = acceptedAnswers;
+        incorrectAttempts = 0;
+
+        // Reset and show UI
+        panel.SetActive(true);
+        questionText.text = question;
+        inputField.text = "";
+        inputField.interactable = true;
+        submitButton.interactable = true;
+
+        // Clear any previous feedback
+        if (feedbackText != null)
+            feedbackText.text = "";
+
+        // Reset submit button listeners and add new listener
+        submitButton.onClick.RemoveAllListeners();
+        submitButton.onClick.AddListener(() => CheckAnswer(onCorrectAnswer));
+
+        OnQuestionUIStateChanged?.Invoke(true);
+
+        // Delay to allow UI to fully load before focusing input
+        StartCoroutine(PrepareInputUI());
+    }
+
+    // coroutine, focus the input field on UI activation
+    IEnumerator PrepareInputUI()
+    {
+        yield return null; // Wait one frame
+        EventSystem.current.SetSelectedGameObject(inputField.gameObject);
+        inputField.ActivateInputField();
+    }
+    
+    // Checks user input against accepted answers
+    void CheckAnswer(Action onCorrectAnswer)
+    {
+        string userInput = Normalize(inputField.text);
+
+        foreach (string valid in acceptedAnswers)
+        {
+            if (userInput == Normalize(valid))
+            {
+                // if correct answer, hide UI and trigger success action
+                panel.SetActive(false);
+                OnQuestionUIStateChanged?.Invoke(false);
+                onCorrectAnswer?.Invoke();
+                return;
+            }
+        }
+
+        // Incorrect answer handling
+        incorrectAttempts++;
+
+        if (feedbackText != null)
+            feedbackText.text = $"Incorrect. {maxAttempts - incorrectAttempts} attempt(s) left.";
+
+        if (incorrectAttempts >= maxAttempts)
+        {
+            // Once too many attempts, game over is shown
+            if (feedbackText != null)
+                feedbackText.text = "Game Over! Too many incorrect attempts.";
+
+            Debug.Log("Game Over: Too many incorrect attempts.");
+            submitButton.interactable = false;
+            inputField.interactable = false;
+        }
+        else
+        {
+            // refocus the input field for next attempt
+            Debug.Log("Starting RefocusInput coroutine...");
+            StartCoroutine(RefocusInput());
+        }
+    }
+
+    // allows flexible matching by editing input slightly
+    string Normalize(string input)
+    {
+        return input.Trim().Replace(" ", "").ToLower(); // remove spaces
+    }
+
+    // Coroutine to re-focus input after incorrect submission
+    IEnumerator RefocusInput()
+    {
+        yield return null; // Wait one frame to avoid UI issues
+        EventSystem.current.SetSelectedGameObject(inputField.gameObject);
+        inputField.ActivateInputField();
+        Debug.Log("RefocusInput: Input field reactivated and selected.");
+    }
+}
